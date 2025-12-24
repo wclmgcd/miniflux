@@ -106,6 +106,9 @@ func (s *Storage) UserMediaByHash(media *model.Media, userID int64) error {
 
 // CreateMedia creates a new media item.
 func (s *Storage) CreateMedia(media *model.Media) error {
+	if media.Content == nil {
+        media.Content = []byte{}
+    }
 	query := `
 	INSERT INTO medias
 	(url, url_hash, mime_type, content, size, cached)
