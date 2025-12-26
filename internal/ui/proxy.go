@@ -84,9 +84,12 @@ slog.Debug("MediaProxy: Fetching remote resource",
 	etag := crypto.HashFromBytes(decodedURL)
 
 	m, err := h.store.MediaByURL(mediaURL)
-	if err != nil {
-		goto FETCH
-	}
+if err != nil {
+    m = &model.Media{
+        URL: mediaURL,
+    }
+    goto FETCH
+}
 
 	if m.Content != nil {
 	slog.Debug(`proxy from database`, slog.String("media_url", mediaURL))
