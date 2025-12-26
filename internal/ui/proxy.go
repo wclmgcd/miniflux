@@ -60,31 +60,26 @@ func (h *handler) mediaProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parsedMediaURL, err := url.Parse(string(decodedURL))
-	if err != nil {
-		html.BadRequest(w, r, errors.New("invalid URL provided"))
-		return
-	}
-
-	if parsedMediaURL.Scheme != "http" && parsedMediaURL.Scheme != "https" {
-		html.BadRequest(w, r, errors.New("invalid URL provided"))
-		return
-	}
-
-	if parsedMediaURL.Host == "" {
-		html.BadRequest(w, r, errors.New("invalid URL provided"))
-		return
-	}
-
-	if !parsedMediaURL.IsAbs() {
-		html.BadRequest(w, r, errors.New("invalid URL provided"))
-		return
-	}
-
 	mediaURL := string(decodedURL)
-	slog.Debug("MediaProxy: Fetching remote resource",
-		slog.String("media_url", mediaURL),
-	)
+
+if mediaURL == "" {
+	html.BadRequest(w, r, errors.New("invalid URL provided"))
+	return
+}
+
+if !strings.HasPrefix(mediaURL, "http://") &&
+	!strings.HasPrefix(mediaURL, "https://") {
+	html.BadRequest(w, r, errors.New("invalid URL provided"))
+	return
+}
+
+// ⚠️ 只用于后面取文件名，不作为校验
+parsedMediaURL, _ := url.Parse(mediaURL)
+
+slog.Debug("MediaProxy: Fetching remote resource",
+	slog.String("media_url", mediaURL),
+)
+
 	etag := crypto.HashFromBytes(decodedURL)
 
 	m, err := h.store.MediaByURL(mediaURL)
