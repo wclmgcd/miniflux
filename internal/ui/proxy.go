@@ -143,6 +143,11 @@ FETCH:
 	// 	},s
 	// 	Timeout: time.Duration(config.Opts.MediaProxyHTTPClientTimeout()) * time.Second,
 	// }
+	if m == nil || m.URL == "" {
+		m = &model.Media{
+			URL: mediaURL,
+		}
+	}
 	slog.Debug(`fetch and proxy`, slog.String("media_url", mediaURL))
 	if mediaURL == "" {
 	slog.Warn("MediaProxy: Empty media URL before fetch")
