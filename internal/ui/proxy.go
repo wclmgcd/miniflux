@@ -87,16 +87,29 @@ slog.Debug("MediaProxy: Fetching remote resource",
 	if err != nil {
 		goto FETCH
 	}
+
 	if m.Content != nil {
-		slog.Debug(`proxy from database`, slog.String("media_url", mediaURL))
-		response.New(w, r).WithCaching(etag, 72*time.Hour, func(b *response.Builder) {
-			b.WithHeader("Content-Type", m.MimeType)
-			b.WithBody(m.Content)
-			b.WithoutCompression()
-			b.Write()
-		})
+	slog.Debug(`proxy from database`, slog.String("media_url", mediaURL))
+
+	// ⚠️ 视频 / Range 请求：不要走缓存封装
+	if r.Header.Get("Range") != "" {
+		w.Header().Set("Content-Type", m.MimeType)
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.WriteHeader(http.StatusPartialContent)
+		w.Write(m.Content)
 		return
 	}
+
+	// 图片 / 普通资源才走缓存
+	response.New(w, r).WithCaching(etag, 72*time.Hour, func(b *response.Builder) {
+		b.WithHeader("Content-Type", m.MimeType)
+		b.WithBody(m.Content)
+		b.WithoutCompression()
+		b.Write()
+	})
+	return
+}
+
 
 	if m.Cached {
 		// cache is located in file system
@@ -126,6 +139,11 @@ FETCH:
 	// 	Timeout: time.Duration(config.Opts.MediaProxyHTTPClientTimeout()) * time.Second,
 	// }
 	slog.Debug(`fetch and proxy`, slog.String("media_url", mediaURL))
+	if mediaURL == "" {
+	slog.Warn("MediaProxy: Empty media URL before fetch")
+	html.BadRequest(w, r, errors.New("invalid media URL"))
+	return
+}
 	resp, err := media.FetchMedia(m, r)
 	if err != nil {
 		slog.Error("MediaProxy: Unable to initialize HTTP client",
