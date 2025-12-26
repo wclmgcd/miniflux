@@ -85,7 +85,8 @@ slog.Debug("MediaProxy: Fetching remote resource",
 	etag := crypto.HashFromBytes(decodedURL)
 
 	m, err := h.store.MediaByURL(mediaURL)
-if err != nil {
+if err != nil || m == nil {
+    // ★ 关键：确保 m 不为 nil，且 URL 有值
     m = &model.Media{
         URL: mediaURL,
     }
