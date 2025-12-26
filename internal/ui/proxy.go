@@ -155,15 +155,18 @@ FETCH:
 	return
 }
 	resp, err := media.FetchMedia(m, r)
-	if err != nil {
-		slog.Error("MediaProxy: Unable to initialize HTTP client",
-			slog.String("media_url", mediaURL),
-			slog.Any("error", err),
-		)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
+if err != nil {
+	slog.Error("MediaProxy: Fetch media failed",
+		slog.String("media_url", mediaURL),
+		slog.Any("error", err),
+	)
+
+	// URL 是我们自己判过的，这里不再返回 500
+	http.Error(w, "Unable to fetch media", http.StatusBadGateway)
+	return
+}
+defer resp.Body.Close()
+
 
 	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		slog.Warn("MediaProxy: "+http.StatusText(http.StatusRequestedRangeNotSatisfiable),
