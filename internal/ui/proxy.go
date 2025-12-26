@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/filesystem"
 	"miniflux.app/v2/internal/http/request"
