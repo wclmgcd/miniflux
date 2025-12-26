@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"time"
+	"strings"
 
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/crypto"
