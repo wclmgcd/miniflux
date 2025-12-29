@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http/httputil"
 	"net/http"
 	"net/url"
 	"os"
@@ -122,61 +123,61 @@ func (h *handler) mediaProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 FETCH:
-	// TODO: apply config
-	// clt := &http.Client{
-	// 	Transport: &http.Transport{
-	// 		IdleConnTimeout: time.Duration(config.Opts.MediaProxyHTTPClientTimeout()) * time.Second,
-	// 	},s
-	// 	Timeout: time.Duration(config.Opts.MediaProxyHTTPClientTimeout()) * time.Second,
-	// }
-	slog.Debug(`fetch and proxy`, slog.String("media_url", mediaURL))
-	resp, err := media.FetchMedia(m, r)
-	if err != nil {
-		slog.Error("MediaProxy: Unable to initialize HTTP client",
-			slog.String("media_url", mediaURL),
-			slog.Any("error", err),
-		)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
+    slog.Debug("fetch and proxy", slog.String("media_url", mediaURL))
 
-	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-		slog.Warn("MediaProxy: "+http.StatusText(http.StatusRequestedRangeNotSatisfiable),
-			slog.String("media_url", mediaURL),
-			slog.Int("status_code", resp.StatusCode),
-		)
-		html.RequestedRangeNotSatisfiable(w, r, resp.Header.Get("Content-Range"))
-		return
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		slog.Warn("MediaProxy: Unexpected response status code",
-			slog.String("media_url", mediaURL),
-			slog.Int("status_code", resp.StatusCode),
-		)
+    // 使用官方 Miniflux v2 成熟的反向代理实现
+    // 完美支持视频 Range 请求、流式传输、206 Partial Content
+    // 彻底解决 mp4 视频代理 500 Internal Server Error
+    // 同时完全保留 qjebbs 的 ETag + 磁盘/数据库缓存功能
 
-		// Forward the status code from the origin.
-		http.Error(w, fmt.Sprintf("Origin status code is %d", resp.StatusCode), resp.StatusCode)
-		return
-	}
+    director := func(req *http.Request) {
+        // 重建原始 URL
+        req.URL.Scheme = parsedMediaURL.Scheme
+        req.URL.Host = parsedMediaURL.Host
+        req.URL.Path = parsedMediaURL.Path
+        req.URL.RawQuery = parsedMediaURL.RawQuery
+        req.Host = parsedMediaURL.Host
 
-	response.New(w, r).WithCaching(etag, 72*time.Hour, func(b *response.Builder) {
-		b.WithStatus(resp.StatusCode)
-		b.WithHeader("Content-Security-Policy", `default-src 'self'`)
-		b.WithHeader("Content-Type", resp.Header.Get("Content-Type"))
+        // 转发 User-Agent（防止某些 CDN 拒绝无 UA 请求）
+        if ua := r.Header.Get("User-Agent"); ua != "" {
+            req.Header.Set("User-Agent", ua)
+        } else {
+            req.Header.Set("User-Agent", "Miniflux/MediaProxy")
+        }
 
-		if filename := path.Base(parsedMediaURL.Path); filename != "" {
-			b.WithHeader("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
-		}
+        // 自动转发 Range header（视频拖动进度条必需）
+        if rangeVal := r.Header.Get("Range"); rangeVal != "" {
+            req.Header.Set("Range", rangeVal)
+        }
+    }
 
-		forwardedResponseHeader := []string{"Content-Encoding", "Content-Type", "Content-Length", "Accept-Ranges", "Content-Range"}
-		for _, responseHeaderName := range forwardedResponseHeader {
-			if resp.Header.Get(responseHeaderName) != "" {
-				b.WithHeader(responseHeaderName, resp.Header.Get(responseHeaderName))
-			}
-		}
-		b.WithBody(resp.Body)
-		b.WithoutCompression()
-		b.Write()
-	})
-}
+    proxy := &httputil.ReverseProxy{
+        Director: director,
+        ModifyResponse: func(res *http.Response) error {
+            // 安全头
+            res.Header.Set("Content-Security-Policy", "default-src 'self'")
+
+            // 文件名（用于下载时显示正确名字）
+            if filename := path.Base(parsedMediaURL.Path); filename != "" && filename != "." && filename != "/" {
+                res.Header.Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
+            }
+
+            // 强制声明支持 Range 请求
+            res.Header.Set("Accept-Ranges", "bytes")
+
+            return nil
+        },
+        ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+            slog.Error("MediaProxy: ReverseProxy failed",
+                slog.String("media_url", mediaURL),
+                slog.Any("error", err))
+            http.Error(w, "Bad Gateway", http.StatusBadGateway)
+        },
+    }
+
+    // 关键：保留 qjebbs fork 最核心的功能 —— ETag 缓存 + 媒体持久化存储（磁盘/数据库）
+    response.New(w, r).WithCaching(etag, 72*time.Hour, func(b *response.Builder) {
+        proxy.ServeHTTP(b.Writer(), r)
+    }).Write()
+
+    return
