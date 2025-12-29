@@ -23,7 +23,6 @@ import (
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/http/response/html"
-	"miniflux.app/v2/internal/reader/media"
 )
 
 func (h *handler) mediaProxy(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +122,7 @@ func (h *handler) mediaProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 FETCH:
+    FETCH:
     slog.Debug("fetch and proxy", slog.String("media_url", mediaURL))
 
     // 官方 Miniflux v2 成熟反向代理实现，完美支持视频 Range / 流式传输
@@ -157,6 +157,9 @@ FETCH:
             }
 
             res.Header.Set("Accept-Ranges", "bytes")
+            res.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d, public", int(72*time.Hour / time.Second))) // 设置缓存头
+            res.Header.Set("ETag", etag) // 设置 ETag
+
             return nil
         },
         ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -167,9 +170,6 @@ FETCH:
         },
     }
 
-    response.New(w, r).WithCaching(etag, 72*time.Hour, func(b *response.Builder) {
-        proxy.ServeHTTP(b.Writer(), r)
-    }).Write()
-
+    proxy.ServeHTTP(w, r) // <-- 直接调用反向代理，不要包裹 WithCaching
     return
 }
