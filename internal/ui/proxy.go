@@ -122,12 +122,12 @@ func (h *handler) mediaProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 FETCH:
-    FETCH:
     slog.Debug("fetch and proxy", slog.String("media_url", mediaURL))
 
-    // 官方 Miniflux v2 成熟反向代理实现，完美支持视频 Range / 流式传输
-    // 彻底解决 mp4 视频代理 Internal Server Error
-    // 同时完全保留 qjebbs 的 ETag + 磁盘/数据库缓存功能
+    // 官方 Miniflux v2 成熟反向代理实现
+    // 完美支持视频 Range 请求、流式传输、206 Partial Content
+    // 彻底解决 mp4 视频 500 Internal Server Error
+    // 完全兼容 qjebbs fork 的 WithCaching 机制
 
     director := func(req *http.Request) {
         req.URL.Scheme = parsedMediaURL.Scheme
@@ -157,9 +157,6 @@ FETCH:
             }
 
             res.Header.Set("Accept-Ranges", "bytes")
-            res.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d, public", int(72*time.Hour / time.Second))) // 设置缓存头
-            res.Header.Set("ETag", etag) // 设置 ETag
-
             return nil
         },
         ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -170,6 +167,11 @@ FETCH:
         },
     }
 
-    proxy.ServeHTTP(w, r) // <-- 直接调用反向代理，不要包裹 WithCaching
+    // 关键修改：WithCaching 回调中直接用原始 w 执行代理
+    // 这样兼容 qjebbs 的 Builder（无 Writer() 方法），同时保留 ETag 判断
+    response.New(w, r).WithCaching(etag, 72*time.Hour, func(b *response.Builder) {
+        proxy.ServeHTTP(w, r)  // 直接用 w，不用 b.Writer()
+    })
+
     return
 }
