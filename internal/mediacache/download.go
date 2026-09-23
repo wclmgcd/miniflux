@@ -16,6 +16,7 @@ import (
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/fetcher"
+	"miniflux.app/v2/internal/reader/rewrite"
 	"miniflux.app/v2/internal/storage"
 )
 
@@ -121,9 +122,7 @@ func downloadMedia(cacheDir string, entryID int64, ref mediaRef, maxSize int64) 
 		}, nil
 	}
 
-	requestBuilder := fetcher.NewRequestBuilder().
-		WithTimeout(config.Opts.MediaProxyHTTPClientTimeout()).
-		WithoutCompression()
+	requestBuilder := newRequestBuilder(ref.url)
 
 	resp, err := requestBuilder.ExecuteRequest(ref.url)
 	if err != nil {
@@ -181,6 +180,26 @@ func downloadMedia(cacheDir string, entryID int64, ref mediaRef, maxSize int64) 
 		MimeType:  detectMimeType(fullPath, contentType),
 		Size:      written,
 	}, nil
+}
+
+// newRequestBuilder prepares the request used to download a media file.
+//
+// The media proxy copies the User-Agent and Referer of the incoming browser
+// request, but this downloader runs in the background with no request to copy.
+// Sending nothing makes net/http advertise "Go-http-client/1.1", which several
+// CDNs (for example NetEase's cms-bucket) answer with 403, so the configured
+// User-Agent and the same Referer overrides as the proxy are used instead.
+func newRequestBuilder(mediaURL string) *fetcher.RequestBuilder {
+	builder := fetcher.NewRequestBuilder().
+		WithTimeout(config.Opts.MediaProxyHTTPClientTimeout()).
+		WithHeader("User-Agent", config.Opts.HTTPClientUserAgent()).
+		WithoutCompression()
+
+	if referer := rewrite.GetRefererForURL(mediaURL); referer != "" {
+		builder = builder.WithHeader("Referer", referer)
+	}
+
+	return builder
 }
 
 func detectMimeType(fullPath, contentType string) string {
