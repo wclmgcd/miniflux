@@ -15,6 +15,7 @@ import (
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/integration"
+	"miniflux.app/v2/internal/mediacache"
 	"miniflux.app/v2/internal/mediaproxy"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/proxyrotator"
@@ -291,6 +292,10 @@ func (h *greaderHandler) editTagHandler(w http.ResponseWriter, r *http.Request) 
 			response.JSONServerError(w, r, err)
 			return
 		}
+
+		for _, entryID := range unstarredEntryIDs {
+			go mediacache.SyncEntryStarredState(h.store, userID, entryID)
+		}
 	}
 
 	if len(starredEntryIDs) > 0 {
@@ -298,6 +303,10 @@ func (h *greaderHandler) editTagHandler(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			response.JSONServerError(w, r, err)
 			return
+		}
+
+		for _, entryID := range starredEntryIDs {
+			go mediacache.SyncEntryStarredState(h.store, userID, entryID)
 		}
 	}
 

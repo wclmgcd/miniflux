@@ -355,6 +355,19 @@ func NewConfigOptions() *configOptions {
 				rawValue:        "0",
 				valueType:       boolType,
 			},
+			"MEDIA_CACHE_DIRECTORY": {
+				parsedStringValue: "",
+				rawValue:          "",
+				valueType:         stringType,
+			},
+			"MEDIA_CACHE_MAX_FILE_SIZE_MB": {
+				parsedIntValue: 0,
+				rawValue:       "0",
+				valueType:      intType,
+				validator: func(rawValue string) error {
+					return validateGreaterOrEqualThan(rawValue, 0)
+				},
+			},
 			"MEDIA_PROXY_CUSTOM_URL": {
 				rawValue:  "",
 				valueType: urlType,
@@ -860,6 +873,14 @@ func (c *configOptions) MaintenanceMessage() string {
 
 func (c *configOptions) MaintenanceMode() bool {
 	return c.options["MAINTENANCE_MODE"].parsedBoolValue
+}
+
+func (c *configOptions) MediaCacheDirectory() string {
+	return c.options["MEDIA_CACHE_DIRECTORY"].parsedStringValue
+}
+
+func (c *configOptions) MediaCacheMaxFileSizeMB() int {
+	return c.options["MEDIA_CACHE_MAX_FILE_SIZE_MB"].parsedIntValue
 }
 
 func (c *configOptions) MediaCustomProxyURL() *url.URL {

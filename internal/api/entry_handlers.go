@@ -15,6 +15,7 @@ import (
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/integration"
+	"miniflux.app/v2/internal/mediacache"
 	"miniflux.app/v2/internal/mediaproxy"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/processor"
@@ -229,9 +230,14 @@ func (h *handler) setEntryStatusAndStarredHandler(w http.ResponseWriter, r *http
 	}
 
 	if entriesStatusUpdateRequest.Starred != nil {
-		if err := h.store.SetEntriesStarredState(request.UserID(r), entriesStatusUpdateRequest.EntryIDs, *entriesStatusUpdateRequest.Starred); err != nil {
+		userID := request.UserID(r)
+		if err := h.store.SetEntriesStarredState(userID, entriesStatusUpdateRequest.EntryIDs, *entriesStatusUpdateRequest.Starred); err != nil {
 			response.JSONServerError(w, r, err)
 			return
+		}
+
+		for _, entryID := range entriesStatusUpdateRequest.EntryIDs {
+			go mediacache.SyncEntryStarredState(h.store, userID, entryID)
 		}
 	}
 
@@ -245,10 +251,13 @@ func (h *handler) toggleStarredHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.ToggleStarred(request.UserID(r), entryID); err != nil {
+	userID := request.UserID(r)
+	if err := h.store.ToggleStarred(userID, entryID); err != nil {
 		response.JSONServerError(w, r, err)
 		return
 	}
+
+	go mediacache.SyncEntryStarredState(h.store, userID, entryID)
 
 	response.NoContent(w, r)
 }
@@ -455,6 +464,8 @@ func (h *handler) importFeedEntryHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		entry.Starred = true
+
+		go mediacache.SyncEntryStarredState(h.store, userID, entry.ID)
 	}
 
 	if created {

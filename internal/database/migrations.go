@@ -1579,4 +1579,29 @@ var migrations = [...]func(tx *sql.Tx) error{
 		`)
 		return err
 	},
+	func(tx *sql.Tx) (err error) {
+		// Tracks media files (images, videos, audio) cached on disk for
+		// starred entries so they can be served locally and cleaned up when
+		// the entry is unstarred. Rows sharing the same url_hash reference a
+		// single physical file; the file is only removed once the last row
+		// referencing it is deleted (reference counting).
+		_, err = tx.Exec(`
+			CREATE TABLE entry_media_cache (
+				id BIGSERIAL,
+				entry_id bigint not null,
+				url_hash text not null,
+				path text not null,
+				media_type text not null default '',
+				mime_type text not null default '',
+				size bigint not null default 0,
+				created_at timestamptz default now(),
+				primary key (id),
+				foreign key (entry_id) references entries(id) on delete cascade
+			);
+
+			CREATE UNIQUE INDEX entry_media_cache_entry_url_unique_idx ON entry_media_cache (entry_id, url_hash);
+			CREATE INDEX entry_media_cache_url_hash_idx ON entry_media_cache (url_hash);
+		`)
+		return err
+	},
 }

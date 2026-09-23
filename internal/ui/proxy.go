@@ -11,7 +11,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/mediacache"
 
 	"miniflux.app/v2/internal/reader/fetcher"
 	"miniflux.app/v2/internal/reader/rewrite"
@@ -81,6 +84,13 @@ func (h *handler) mediaProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mediaURL := string(decodedURL)
+
+	// Serve the media from the local disk cache when it has been downloaded for
+	// a starred entry. This keeps the content available even if the origin link
+	// stops working, and avoids re-fetching the same resource on every request.
+	if h.serveCachedMedia(w, r, mediaURL) {
+		return
+	}
 
 	slog.Debug("MediaProxy: Fetching remote resource",
 		slog.String("media_url", mediaURL),
@@ -161,4 +171,52 @@ func (h *handler) mediaProxy(w http.ResponseWriter, r *http.Request) {
 		b.WithoutCompression()
 		b.Write()
 	})
+}
+
+// serveCachedMedia serves a media file from the local disk cache when it has
+// been downloaded for a starred entry. It returns true when the response has
+// been written (or the request has been fully handled), and false when the media
+// is not cached and the caller should fall back to fetching the origin.
+func (h *handler) serveCachedMedia(w http.ResponseWriter, r *http.Request, mediaURL string) bool {
+	if !mediacache.Enabled() {
+		return false
+	}
+
+	relativePath, mimeType, ok := h.store.MediaCachePathByURLHash(mediacache.URLHash(mediaURL))
+	if !ok {
+		return false
+	}
+
+	fullPath, ok := mediacache.AbsolutePath(relativePath)
+	if !ok {
+		return false
+	}
+
+	file, err := os.Open(fullPath)
+	if err != nil {
+		// The database row exists but the file is missing (e.g. cache directory
+		// was cleared). Fall back to fetching the origin.
+		slog.Warn("MediaProxy: cached file missing, falling back to origin",
+			slog.String("media_url", mediaURL),
+			slog.String("path", fullPath),
+			slog.Any("error", err),
+		)
+		return false
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return false
+	}
+
+	w.Header().Set("Content-Security-Policy", response.ContentSecurityPolicyForUntrustedContent)
+	if mimeType != "" {
+		w.Header().Set("Content-Type", mimeType)
+	}
+
+	// http.ServeContent handles Range requests (required for video/audio
+	// seeking), conditional requests and Content-Length automatically.
+	http.ServeContent(w, r, filepath.Base(fullPath), stat.ModTime(), file)
+	return true
 }

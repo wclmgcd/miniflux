@@ -13,6 +13,7 @@ import (
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/integration"
+	"miniflux.app/v2/internal/mediacache"
 	"miniflux.app/v2/internal/mediaproxy"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/storage"
@@ -458,6 +459,8 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 		go func() {
 			integration.SendEntry(entry, settings)
 		}()
+
+		go mediacache.SyncEntryStarredState(h.store, userID, entryID)
 	case "unsaved":
 		slog.Debug("[Fever] Mark entry as unsaved",
 			slog.Int64("user_id", userID),
@@ -467,6 +470,8 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 			response.JSONServerError(w, r, err)
 			return
 		}
+
+		go mediacache.SyncEntryStarredState(h.store, userID, entryID)
 	}
 
 	response.JSON(w, r, newBaseResponse())

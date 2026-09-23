@@ -431,6 +431,18 @@ Set to 1 to enable maintenance mode\&.
 .br
 Disabled by default\&.
 .TP
+.B MEDIA_CACHE_DIRECTORY
+Directory used to store media files (images, videos, audio) downloaded for
+starred entries, so they remain available when the original links break\&.
+.br
+Empty by default, which disables the media cache\&.
+.TP
+.B MEDIA_CACHE_MAX_FILE_SIZE_MB
+Maximum size in megabytes of a single media file to download into the cache\&.
+Larger files are skipped\&.
+.br
+Default is 0, which means unlimited\&.
+.TP
 .B MEDIA_PROXY_CUSTOM_URL
 Sets an external server to proxy media through\&.
 .br

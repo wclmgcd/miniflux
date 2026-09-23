@@ -8,14 +8,18 @@ import (
 
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/mediacache"
 )
 
 func (h *handler) toggleStarred(w http.ResponseWriter, r *http.Request) {
+	userID := request.UserID(r)
 	entryID := request.RouteInt64Param(r, "entryID")
-	if err := h.store.ToggleStarred(request.UserID(r), entryID); err != nil {
+	if err := h.store.ToggleStarred(userID, entryID); err != nil {
 		response.JSONServerError(w, r, err)
 		return
 	}
+
+	go mediacache.SyncEntryStarredState(h.store, userID, entryID)
 
 	response.JSON(w, r, "OK")
 }
