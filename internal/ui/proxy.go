@@ -215,6 +215,14 @@ func (h *handler) serveCachedMedia(w http.ResponseWriter, r *http.Request, media
 		w.Header().Set("Content-Type", mimeType)
 	}
 
+	// Mirror the live-proxy path: suggest the original file name (with its
+	// extension) so clients that sniff names pick the right decoder.
+	if parsedURL, err := url.Parse(mediaURL); err == nil {
+		if filename := path.Base(parsedURL.Path); filename != "" && filename != "." && filename != "/" {
+			w.Header().Set("Content-Disposition", response.ContentDispositionInline(filename))
+		}
+	}
+
 	// http.ServeContent handles Range requests (required for video/audio
 	// seeking), conditional requests and Content-Length automatically.
 	http.ServeContent(w, r, filepath.Base(fullPath), stat.ModTime(), file)

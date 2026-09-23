@@ -102,6 +102,12 @@ func (b *Builder) WithInline(filename string) *Builder {
 	return b
 }
 
+// ContentDispositionInline builds the same header value as WithInline for
+// callers that write the response directly instead of using the Builder.
+func ContentDispositionInline(filename string) string {
+	return formatContentDisposition("inline", filename)
+}
+
 // WithoutCompression disables HTTP compression.
 func (b *Builder) WithoutCompression() *Builder {
 	b.enableCompression = false

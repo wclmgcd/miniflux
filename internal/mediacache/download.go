@@ -86,7 +86,11 @@ func RemoveEntry(store *storage.Storage, entryID int64) {
 				slog.String("path", fullPath),
 				slog.Any("error", err),
 			)
+			continue
 		}
+		// The shard directory is kept only while it still holds files;
+		// os.Remove fails on non-empty directories, which we ignore.
+		os.Remove(filepath.Dir(fullPath))
 	}
 }
 
