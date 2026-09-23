@@ -130,17 +130,71 @@ func TestExtractMediaURLsProxyDisabled(t *testing.T) {
 	}
 }
 
-func TestRelativePathAndURLHash(t *testing.T) {
-	hash := URLHash("https://example.org/a.png")
+func TestRelativePathLayout(t *testing.T) {
+	const mediaURL = "https://example.org/media/movie.MP4"
+
+	hash := URLHash(mediaURL)
 	if hash == "" {
 		t.Fatal("expected a non-empty url hash")
 	}
-	rel := RelativePath(hash)
-	if rel[:2] != hash[:2] {
-		t.Fatalf("expected relative path %q to be sharded by hash prefix %q", rel, hash[:2])
+
+	expected := "video/" + hash[:2] + "/" + hash + ".mp4"
+	if actual := RelativePath(hash, "video", mediaURL); actual != expected {
+		t.Fatalf("expected relative path %q, got %q", expected, actual)
 	}
-	if URLHash("https://example.org/a.png") != hash {
+
+	if actual := RelativePath(hash, "", mediaURL); !strings.HasPrefix(actual, "other/"+hash[:2]+"/") {
+		t.Fatalf("expected unknown media types under other/, got %q", actual)
+	}
+
+	if URLHash(mediaURL) != hash {
 		t.Fatal("URLHash must be deterministic")
+	}
+}
+
+func TestFileExtension(t *testing.T) {
+	tests := []struct {
+		name     string
+		mediaURL string
+		expected string
+	}{
+		{"plain", "https://example.org/a.png", ".png"},
+		{"uppercased normalised", "https://example.org/A.MP4", ".mp4"},
+		{"query string ignored", "https://example.org/a.jpg?w=800", ".jpg"},
+		{"nested path", "https://example.org/x/y/z.jpeg", ".jpeg"},
+		{"no extension", "https://example.org/image", ""},
+		{"host only", "https://example.org", ""},
+		{"too long rejected", "https://example.org/a.abcdef", ""},
+		{"dot dot rejected", "https://example.org/a..", ""},
+		{"non alphanumeric rejected", "https://example.org/a.ps'g", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if actual := FileExtension(tc.mediaURL); actual != tc.expected {
+				t.Errorf("expected extension %q, got %q", tc.expected, actual)
+			}
+		})
+	}
+}
+
+func TestRelativePathNeverEscapesCacheDirectory(t *testing.T) {
+	const cacheDir = "/var/cache/miniflux"
+
+	for _, mediaURL := range []string{
+		"https://example.org/a..",
+		"https://example.org/../../etc/passwd",
+		"https://example.org/a.png/..%2f..%2fsecret",
+		"https://example.org/x.%2e%2e/png",
+	} {
+		relativePath := RelativePath(URLHash(mediaURL), "image", mediaURL)
+		fullPath, err := joinCachePath(cacheDir, relativePath)
+		if err != nil {
+			t.Fatalf("unexpected error for %q: %v", mediaURL, err)
+		}
+		if !strings.HasPrefix(fullPath, cacheDir+"/") {
+			t.Fatalf("media URL %q escaped the cache directory: %q", mediaURL, fullPath)
+		}
 	}
 }
 

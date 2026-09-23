@@ -8,7 +8,9 @@ package mediacache // import "miniflux.app/v2/internal/mediacache"
 
 import (
 	"fmt"
+	"net/url"
 	"path"
+	"regexp"
 	"strings"
 
 	"miniflux.app/v2/internal/config"
@@ -38,13 +40,44 @@ func URLHash(mediaURL string) string {
 }
 
 // RelativePath returns the on-disk path (relative to the cache directory) for a
-// given url hash. Files are sharded across sub-directories using the first two
-// hexadecimal characters of the hash to avoid huge flat directories.
-func RelativePath(urlHash string) string {
-	if len(urlHash) < 2 {
-		return urlHash
+// given media file. Files are grouped by media type, then sharded across
+// sub-directories using the first two hexadecimal characters of the hash to
+// avoid huge flat directories. The extension from the original URL is kept so
+// cached files stay identifiable and playable outside the browser.
+func RelativePath(urlHash, mediaType, mediaURL string) string {
+	switch mediaType {
+	case "image", "video", "audio":
+	default:
+		mediaType = "other"
 	}
-	return path.Join(urlHash[:2], urlHash)
+
+	shard := urlHash
+	if len(urlHash) >= 2 {
+		shard = urlHash[:2]
+	}
+
+	return path.Join(mediaType, shard, urlHash+FileExtension(mediaURL))
+}
+
+// safeFileExtension matches the only extensions accepted from a remote URL.
+// Anything else (traversal sequences, odd characters, over-long tails) is
+// dropped so a hostile feed can never influence where a file is written.
+var safeFileExtension = regexp.MustCompile(`^\.[a-z0-9]{1,5}$`)
+
+// FileExtension returns the lowercased file extension carried by a media URL,
+// or an empty string when it is absent or not considered safe.
+func FileExtension(mediaURL string) string {
+	parsedURL, err := url.Parse(mediaURL)
+	if err != nil {
+		return ""
+	}
+
+	extension := strings.ToLower(path.Ext(path.Base(parsedURL.Path)))
+	if !safeFileExtension.MatchString(extension) {
+		return ""
+	}
+
+	return extension
 }
 
 // ExtractMediaURLs returns the media URLs referenced by an entry that will

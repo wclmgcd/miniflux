@@ -78,7 +78,7 @@ func RemoveEntry(store *storage.Storage, entryID int64) {
 	for _, relativePath := range orphanedPaths {
 		fullPath, err := joinCachePath(cacheDir, relativePath)
 		if err != nil {
-			slog.Warn("MediaCache: "+err.Error())
+			slog.Warn("MediaCache: " + err.Error())
 			continue
 		}
 		if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -88,9 +88,12 @@ func RemoveEntry(store *storage.Storage, entryID int64) {
 			)
 			continue
 		}
-		// The shard directory is kept only while it still holds files;
-		// os.Remove fails on non-empty directories, which we ignore.
-		os.Remove(filepath.Dir(fullPath))
+		// Prune the now-empty shard and type directories. os.Remove fails on
+		// non-empty directories, which we ignore; the cache root is never
+		// reachable here because both candidates sit below it.
+		shardDir := filepath.Dir(fullPath)
+		os.Remove(shardDir)
+		os.Remove(filepath.Dir(shardDir))
 	}
 }
 
@@ -99,7 +102,7 @@ func RemoveEntry(store *storage.Storage, entryID int64) {
 // resource is skipped (too large or download failure is handled by the caller).
 func downloadMedia(cacheDir string, entryID int64, ref mediaRef, maxSize int64) (*model.MediaCacheItem, error) {
 	urlHash := URLHash(ref.url)
-	relativePath := RelativePath(urlHash)
+	relativePath := RelativePath(urlHash, ref.mediaType, ref.url)
 
 	fullPath, err := joinCachePath(cacheDir, relativePath)
 	if err != nil {
