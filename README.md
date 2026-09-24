@@ -3,7 +3,8 @@
 ai万岁
 新加的
 - MEDIA_CACHE_DIRECTORY=/app/mediacache
-# 可选：单个媒体文件大小上限（MB），0 或不设=不限制。视频大就别设太小      - MEDIA_CACHE_MAX_FILE_SIZE_MB=0
+# 可选：单个媒体文件大小上限（MB），0 或不设=不限制。视频大就别设太小      
+- MEDIA_CACHE_MAX_FILE_SIZE_MB=0
 
 volumes:    
    - ./mediacache:/app/mediacache
