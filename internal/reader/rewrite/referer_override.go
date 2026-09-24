@@ -41,6 +41,8 @@ func GetRefererForURL(u string) string {
 		return "https://i.jandan.net"
 	case strings.HasSuffix(parsedUrl.Hostname(), ".sinaimg.cn"):
 		return "https://weibo.com"
+	case strings.HasSuffix(parsedUrl.Hostname(), ".ws.126.net"):
+		return "https://www.163.com"
 	}
 
 	return ""

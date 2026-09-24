@@ -64,6 +64,21 @@ func TestGetRefererForURL(t *testing.T) {
 			expected: "",
 		},
 		{
+			name:     "NetEase media bucket URL",
+			url:      "https://cms-bucket.ws.126.net/2026/0908/example.mp4",
+			expected: "https://www.163.com",
+		},
+		{
+			name:     "NetEase video server URL",
+			url:      "https://video-zb.ws.126.net/c79521eb83860585d1a94b3661093701/a8569b81376293074554980308524199-4.mp4",
+			expected: "https://www.163.com",
+		},
+		{
+			name:     "Host that only ends with 126.net but not ws.126.net",
+			url:      "https://fake-ws.126.net/example.mp4",
+			expected: "",
+		},
+		{
 			name:     "Subdomain match with suffix",
 			url:      "https://sub.moyu.im/image.png",
 			expected: "https://i.jandan.net",
