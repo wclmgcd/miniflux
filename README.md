@@ -1,3 +1,31 @@
+在Miniflux 2的基础上添加了，图片，视频，音频缓存。
+点击收藏时，自动下载到vps，取消后删除。缓存的内容不会被自动清除。
+ai万岁
+新加的
+- MEDIA_CACHE_DIRECTORY=/app/mediacache
+# 可选：单个媒体文件大小上限（MB），0 或不设=不限制。视频大就别设太小      - MEDIA_CACHE_MAX_FILE_SIZE_MB=0
+
+volumes:    
+   - ./mediacache:/app/mediacache
+
+When a user stars an entry, its images/video/audio are downloaded to the VPS disk in the background; when the star is removed, the cached media is deleted (with reference counting so files shared across starred entries survive).
+Two new config options:
+
+MEDIA_CACHE_DIRECTORY — set to enable the feature (empty = disabled, a no-op). Files shard as <dir>/<hash[:2]>/<hash>.
+MEDIA_CACHE_MAX_FILE_SIZE_MB — per-file cap; 0 = unlimited.
+
+Important operational note: cached media is served only through the existing /proxy/ endpoint. So the cache is useful only when the media proxy is enabled for the relevant types
+
+MEDIA_PROXY_MODE must not be none (http-only or all), and
+MEDIA_PROXY_RESOURCE_TYPES must include the types you want served (default is image only — add video,audio to protect those).
+
+ai的说明：
+ExtractMediaURLs gates on the exact same mediaproxy.ShouldProxifyURLWithMimeType decision the rewriter uses, so what gets cached and what gets served can never diverge.
+A DB migration runs on next startup, creating the entry_media_cache table (with a url_hash reference index and ON DELETE CASCADE on entries).
+Wired star paths: UI toggle, API toggle + batch + import, Fever saved/unsaved, Google Reader starred/unstarred — all fire go mediacache.SyncEntryStarredState(...).
+Safety: downloads go through the existing fetcher (SSRF-protected), cache paths are traversal-checked, the HMAC proxy signature is preserved, and http.ServeContent handles Range requests for video/audio seeking. The status check now accepts only 200 OK (never 206, since no Range header is sent).
+Verification: go build ./... exit 0, go vet clean on touched packages, mediacache tests pass, non-DB suites pass. (The one failing config test — TestParseAdminPasswordFileOptionWithEmptyFile — is a pre-existing environmental issue on Windows, confirmed identical on a clean tree.)
+
 Miniflux 2
 ==========
 
