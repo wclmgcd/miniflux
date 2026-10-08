@@ -1,0 +1,204 @@
+# ============================================================================
+# 手动编译自定义版 Miniflux 的 Docker 镜像
+#
+# 用法：
+#   1. 把本文件放到仓库的 .github/workflows/ 目录下并 push
+#   2. 打开仓库页面 -> Actions -> 左侧选中 "Build Docker Image (Manual)"
+#   3. 点击右侧 "Run workflow"，填好参数后开始构建
+#   4. 构建结束后，镜像已推送到 GHCR，直接给 docker-compose 用即可
+#
+# 默认推送地址：ghcr.io/<你的用户名>/<仓库名>:<镜像标签>
+# 例如：ghcr.io/wclmgcd/miniflux:latest
+# ============================================================================
+name: Build Docker Image (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "镜像标签，例如 latest、custom-20261008"
+        required: true
+        default: "latest"
+        type: string
+
+      variant:
+        description: "镜像类型：alpine 带 shell 便于排查；distroless 更小更安全"
+        required: true
+        default: "alpine"
+        type: choice
+        options:
+          - alpine
+          - distroless
+
+      platforms:
+        description: "目标平台（多平台编译会明显变慢，QEMU 模拟下 arm64 通常要十几分钟）"
+        required: true
+        default: "linux/amd64"
+        type: choice
+        options:
+          - "linux/amd64"
+          - "linux/amd64,linux/arm64"
+          - "linux/amd64,linux/arm64,linux/arm/v7"
+
+      registry:
+        description: "推送到哪个镜像仓库（选 dockerhub 需先配好 Secrets）"
+        required: true
+        default: "ghcr"
+        type: choice
+        options:
+          - ghcr
+          - dockerhub
+          - both
+
+      build_version:
+        description: "写入二进制的版本号，留空则使用镜像标签"
+        required: false
+        default: ""
+        type: string
+
+# 推送镜像到 GHCR 需要 packages: write
+permissions:
+  contents: read
+  packages: write
+
+# 同一个分支上的手动构建排队执行，避免并发争抢 GHA 缓存
+concurrency:
+  group: build-image-manual-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # fetch-depth: 0 才能让 make miniflux 里的 git describe 拿到 tag
+          fetch-depth: 0
+
+      - name: Resolve build parameters
+        id: params
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+          INPUT_VARIANT: ${{ inputs.variant }}
+          INPUT_REGISTRY: ${{ inputs.registry }}
+          INPUT_VERSION: ${{ inputs.build_version }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          case "$INPUT_VARIANT" in
+            alpine)     DOCKERFILE="packaging/docker/alpine/Dockerfile" ;;
+            distroless) DOCKERFILE="packaging/docker/distroless/Dockerfile" ;;
+            *) echo "::error::未知的镜像类型：$INPUT_VARIANT"; exit 1 ;;
+          esac
+
+          # GHCR 要求镜像路径全小写
+          REPO_LC="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          VERSION="${INPUT_VERSION:-$INPUT_TAG}"
+
+          IMAGES=""
+          if [ "$INPUT_REGISTRY" = "ghcr" ] || [ "$INPUT_REGISTRY" = "both" ]; then
+            IMAGES="${IMAGES}ghcr.io/${REPO_LC}"$'\n'
+          fi
+          if [ "$INPUT_REGISTRY" = "dockerhub" ] || [ "$INPUT_REGISTRY" = "both" ]; then
+            if [ -z "$DOCKERHUB_USERNAME" ]; then
+              echo "::error::选择 dockerhub 之前，请先在仓库 Settings -> Secrets and variables -> Actions 中配置 DOCKERHUB_USERNAME 和 DOCKERHUB_TOKEN"
+              exit 1
+            fi
+            IMAGES="${IMAGES}docker.io/${DOCKERHUB_USERNAME}/miniflux"$'\n'
+          fi
+
+          # 每个镜像都打两个标签：自定义标签 + sha-xxxxxxx
+          TAGS=""
+          while IFS= read -r image; do
+            [ -z "$image" ] && continue
+            TAGS="${TAGS}${image}:${INPUT_TAG}"$'\n'
+            TAGS="${TAGS}${image}:sha-${SHORT_SHA}"$'\n'
+          done <<< "$IMAGES"
+
+          {
+            echo "dockerfile=${DOCKERFILE}"
+            echo "version=${VERSION}"
+            echo "tags<<__TAGS_EOF__"
+            printf '%s' "$TAGS"
+            echo "__TAGS_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "==== 本次构建参数 ===="
+          echo "Dockerfile : ${DOCKERFILE}"
+          echo "版本号     : ${VERSION}"
+          echo "镜像标签   :"
+          printf '%s' "$TAGS" | sed 's/^/  - /'
+
+      # 只有多平台构建才需要 QEMU 模拟
+      - name: Set up QEMU
+        if: inputs.platforms != 'linux/amd64'
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GitHub Container Registry
+        if: inputs.registry == 'ghcr' || inputs.registry == 'both'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: inputs.registry == 'dockerhub' || inputs.registry == 'both'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ steps.params.outputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.params.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.params.outputs.version }}
+          # 用 GitHub Actions 缓存加速重复构建
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # 关掉 provenance 证明，避免出现 unknown/unknown 平台导致部分工具拉取异常
+          provenance: false
+
+      - name: Write job summary
+        env:
+          TAGS: ${{ steps.params.outputs.tags }}
+          VERSION: ${{ steps.params.outputs.version }}
+          PLATFORMS: ${{ inputs.platforms }}
+          VARIANT: ${{ inputs.variant }}
+        run: |
+          FIRST_IMAGE="$(printf '%s\n' "$TAGS" | head -n 1)"
+          {
+            echo "## 镜像构建完成"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 镜像类型 | \`${VARIANT}\` |"
+            echo "| 二进制版本号 | \`${VERSION}\` |"
+            echo "| 目标平台 | \`${PLATFORMS}\` |"
+            echo ""
+            echo "### 镜像标签"
+            echo ""
+            echo '```'
+            printf '%s' "$TAGS"
+            echo '```'
+            echo ""
+            echo "### 在服务器上使用"
+            echo ""
+            echo '```bash'
+            echo "docker pull ${FIRST_IMAGE}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

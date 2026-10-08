@@ -1,0 +1,73 @@
+# ============================================================================
+# 自定义版 Miniflux 的 docker compose 部署文件
+#
+# 使用步骤：
+#   1. 先在 GitHub 上手动跑一次 "Build Docker Image (Manual)" 工作流
+#      （Actions -> Build Docker Image (Manual) -> Run workflow）
+#   2. 把下面 miniflux 服务的 image 换成你的实际镜像地址
+#      默认是 ghcr.io/<用户名>/<仓库名>:<标签>，例如 ghcr.io/wclmgcd/miniflux:latest
+#      工作流运行结束后的 Summary 里会直接打印出可用的镜像地址
+#   3. 改掉下面所有 change-me，然后 docker compose up -d
+#
+# 注意：GHCR 上新建的 package 默认是私有的。
+#   - 想让服务器免登录拉取：到 GitHub 个人主页 -> Packages -> 选中该镜像 ->
+#     Package settings -> Change visibility -> Public
+#   - 想保持私有：先在服务器上执行
+#       echo <你的PAT> | docker login ghcr.io -u <你的用户名> --password-stdin
+# ============================================================================
+services:
+  miniflux:
+    # 改成工作流实际构建出来的镜像地址
+    image: ghcr.io/wclmgcd/miniflux:latest
+    container_name: miniflux
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # --- 数据库：用户名 / 密码 / 库名要和下面 db 服务完全一致 ---
+      DATABASE_URL: "postgres://miniflux:change-me@db/miniflux?sslmode=disable"
+
+      # --- 首次启动自动建表并创建管理员，建完可以把 CREATE_ADMIN 改成 0 ---
+      RUN_MIGRATIONS: "1"
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: "admin"
+      ADMIN_PASSWORD: "change-me"
+
+      # --- 媒体缓存（图片 / 视频 / 音频 分目录缓存）---
+      # 目录留空 = 关闭缓存；这里指向镜像里已预建好、属主为 65534 的目录
+      MEDIA_CACHE_DIRECTORY: "/var/lib/miniflux/media-cache"
+      MEDIA_CACHE_MAX_FILE_SIZE_MB: "100"
+      # all = 同时代理并缓存站内和站外资源
+      MEDIA_PROXY_MODE: "all"
+      MEDIA_PROXY_RESOURCE_TYPES: "image,video,audio"
+
+      LOG_LEVEL: "info"
+      TZ: "Asia/Shanghai"
+    volumes:
+      # 媒体缓存持久化，重启不丢
+      - miniflux-data:/var/lib/miniflux
+
+  db:
+    image: postgres:17-alpine
+    container_name: miniflux-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "miniflux"
+      POSTGRES_USER: "miniflux"
+      POSTGRES_PASSWORD: "change-me"
+      TZ: "Asia/Shanghai"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U miniflux -d miniflux"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  miniflux-data:
+  postgres-data:
